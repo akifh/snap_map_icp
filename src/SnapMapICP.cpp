@@ -75,7 +75,9 @@ double ICP_NUM_ITER = 250;
 double SCAN_RATE = 2;
 
 std::string BASE_LASER_FRAME = "/base_laser_link";
+std::string BASE_FRAME = "/base_link";
 std::string ODOM_FRAME = "/odom_combined";
+std::string GLOBAL_FRAME = "/map";
 
 ros::NodeHandle *nh = 0;
 ros::Publisher pub_output_;
@@ -181,7 +183,7 @@ void mapCallback(const nav_msgs::OccupancyGrid& msg)
     cloud_xyz->is_dense = false;
     std_msgs::Header header;
     header.stamp = ros::Time(0);
-    header.frame_id = "/map";
+    header.frame_id = GLOBAL_FRAME;
     cloud_xyz->header = pcl_conversions::toPCL(header);
 
     pcl::PointXYZ point_xyz;
@@ -287,7 +289,7 @@ void scanCallback (const sensor_msgs::LaserScan::ConstPtr& scan_in)
         count_sc_ = 0;
 
         tf::StampedTransform base_at_laser;
-        if (!getTransform(base_at_laser, ODOM_FRAME, "base_link", scan_in_time))
+        if (!getTransform(base_at_laser, ODOM_FRAME, BASE_FRAME, scan_in_time))
         {
             ROS_WARN("Did not get base pose at laser scan time");
             scan_callback_mutex.unlock();
@@ -304,14 +306,14 @@ void scanCallback (const sensor_msgs::LaserScan::ConstPtr& scan_in)
         we_have_a_scan = false;
         bool gotTransform = false;
 
-        if (!listener_->waitForTransform("/map", cloud.header.frame_id, cloud.header.stamp, ros::Duration(0.05)))
+        if (!listener_->waitForTransform(GLOBAL_FRAME, cloud.header.frame_id, cloud.header.stamp, ros::Duration(0.05)))
         {
             scan_callback_mutex.unlock();
-            ROS_WARN("SnapMapICP no map to cloud transform found MUTEX UNLOCKED");
+            ROS_WARN("SnapMapICP no map to cloud transform found MUTEX UNLOCKED, %s", cloud.header.frame_id.c_str());
             return;
         }
 
-        if (!listener_->waitForTransform("/map", "/base_link", cloud.header.stamp, ros::Duration(0.05)))
+        if (!listener_->waitForTransform(GLOBAL_FRAME, BASE_FRAME, cloud.header.stamp, ros::Duration(0.05)))
         {
             scan_callback_mutex.unlock();
             ROS_WARN("SnapMapICP no map to base transform found MUTEX UNLOCKED");
@@ -324,7 +326,7 @@ void scanCallback (const sensor_msgs::LaserScan::ConstPtr& scan_in)
             try
             {
                 gotTransform = true;
-                listener_->transformPointCloud ("/map",cloud,cloudInMap);
+                listener_->transformPointCloud (GLOBAL_FRAME,cloud,cloudInMap);
             }
             catch (...)
             {
@@ -346,7 +348,7 @@ void scanCallback (const sensor_msgs::LaserScan::ConstPtr& scan_in)
             try
             {
                 gotTransform = true;
-                listener_->lookupTransform("/map", "/base_link",
+                listener_->lookupTransform(GLOBAL_FRAME, BASE_FRAME,
                                            cloud.header.stamp , oldPose);
             }
             catch (tf::TransformException ex)
@@ -428,7 +430,7 @@ void scanCallback (const sensor_msgs::LaserScan::ConstPtr& scan_in)
             t =  t * oldPose;
 
             tf::StampedTransform base_after_icp;
-            if (!getTransform(base_after_icp, ODOM_FRAME, "base_link", ros::Time(0)))
+            if (!getTransform(base_after_icp, ODOM_FRAME, BASE_FRAME, ros::Time(0)))
             {
                 ROS_WARN("Did not get base pose at now");
                 scan_callback_mutex.unlock();
@@ -460,7 +462,7 @@ void scanCallback (const sensor_msgs::LaserScan::ConstPtr& scan_in)
             {
                 lastTimeSent = actScan;
                 geometry_msgs::PoseWithCovarianceStamped pose;
-                pose.header.frame_id = "map";
+                pose.header.frame_id = GLOBAL_FRAME;
                 pose.pose.pose.position.x = t.getOrigin().x();
                 pose.pose.pose.position.y = t.getOrigin().y();
 
@@ -520,10 +522,13 @@ int main(int argc, char** argv)
 // Init the ROS node
     ros::init(argc, argv, "snapmapicp");
     ros::NodeHandle nh_("~");
+    ros::NodeHandle nhp;
     nh = &nh_;
 
     nh->param<std::string>("odom_frame", ODOM_FRAME, "/odom_combined");
     nh->param<std::string>("base_laser_frame", BASE_LASER_FRAME, "/base_laser_link");
+    nh->param<std::string>("base_frame", BASE_FRAME, "/base_link");
+    nh->param<std::string>("global_frame", GLOBAL_FRAME, "/map");
 
     last_processed_scan = ros::Time::now();
 
@@ -535,17 +540,17 @@ int main(int argc, char** argv)
     pub_output_ = nh->advertise<sensor_msgs::PointCloud2> ("map_points", 1);
     pub_output_scan = nh->advertise<sensor_msgs::PointCloud2> ("scan_points", 1);
     pub_output_scan_transformed = nh->advertise<sensor_msgs::PointCloud2> ("scan_points_transformed", 1);
-    pub_pose = nh->advertise<geometry_msgs::PoseWithCovarianceStamped>("initialpose", 1);
+    pub_pose = nhp.advertise<geometry_msgs::PoseWithCovarianceStamped>("initialpose", 1);
 
-    ros::Subscriber subMap = nh_.subscribe("map", 1, mapCallback);
-    ros::Subscriber subScan = nh_.subscribe("base_scan", 1, scanCallback);
+    ros::Subscriber subMap = nhp.subscribe("map", 1, mapCallback);
+    ros::Subscriber subScan = nhp.subscribe("scan", 1, scanCallback);
 
     ros::Rate loop_rate(5);
 
-    listener_->waitForTransform("/base_link", "/map",
+    listener_->waitForTransform(BASE_FRAME, GLOBAL_FRAME,
                                 ros::Time(0), ros::Duration(30.0));
 
-    listener_->waitForTransform(BASE_LASER_FRAME, "/map",
+    listener_->waitForTransform(BASE_LASER_FRAME, GLOBAL_FRAME,
                                 ros::Time(0), ros::Duration(30.0));
 
     ros::AsyncSpinner spinner(1);
@@ -562,11 +567,11 @@ int main(int argc, char** argv)
         {
             lastScan = actScan;
             // publish map as a pointcloud2
-            //if (we_have_a_map)
-            //   pub_output_.publish(Ŕ);
+            if (we_have_a_map)
+               pub_output_.publish(output_cloud);
             // publish scan as seen as a pointcloud2
-            //if (we_have_a_scan)
-            //   pub_output_scan.publish(cloud2);
+            if (we_have_a_scan)
+               pub_output_scan.publish(cloud2);
             // publish icp transformed scan
             if (we_have_a_scan_transformed)
                 pub_output_scan_transformed.publish(cloud2transformed);
