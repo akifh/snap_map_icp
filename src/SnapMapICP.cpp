@@ -52,6 +52,11 @@
 
 #include <boost/thread/mutex.hpp>
 
+#include "tf/transform_listener.h"
+#include "tf/message_filter.h"
+#include "tf/tf.h"
+#include "message_filters/subscriber.h"
+
 boost::mutex scan_callback_mutex;
 
 //these should be parameters
@@ -86,6 +91,16 @@ ros::Publisher pub_output_scan_transformed;
 ros::Publisher pub_info_;
 
 ros::Publisher pub_pose;
+
+// Use a child class to get access to tf2::Buffer class inside of tf_
+struct TransformListenerWrapper : public tf::TransformListener
+{
+  inline tf2_ros::Buffer &getBuffer() {return tf2_buffer_;}
+};
+
+TransformListenerWrapper* tf_;
+message_filters::Subscriber<sensor_msgs::LaserScan>* laser_scan_sub_;
+tf::MessageFilter<sensor_msgs::LaserScan>* laser_scan_filter_;
 
 
 laser_geometry::LaserProjection *projector_ = 0;
@@ -543,7 +558,12 @@ int main(int argc, char** argv)
     pub_pose = nhp.advertise<geometry_msgs::PoseWithCovarianceStamped>("initialpose", 1);
 
     ros::Subscriber subMap = nhp.subscribe("map", 1, mapCallback);
-    ros::Subscriber subScan = nhp.subscribe("scan", 1, scanCallback);
+    //ros::Subscriber subScan = nhp.subscribe("scan", 1, scanCallback);
+
+    tf_ = new TransformListenerWrapper();
+    laser_scan_sub_ = new message_filters::Subscriber<sensor_msgs::LaserScan>(nhp, "scan", 100);
+    laser_scan_filter_ = new tf::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_, *tf_, ODOM_FRAME, 50);
+    laser_scan_filter_->registerCallback(boost::bind(&scanCallback, _1));
 
     ros::Rate loop_rate(5);
 

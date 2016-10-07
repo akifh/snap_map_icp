@@ -19,7 +19,7 @@
         <param name="icp_fitness_threshold" value="100"/>
      
         <!-- float, describes how old laser scans can be before they get sorted out by SnapMapICP -->
-        <param name="age_threshold" value="1"/>
+        <param name="age_threshold" value="1.0"/>
         <!-- float, seconds, how long before another, new initial pose will be sent after one was sent -->
         <param name="update_age_threshold" value="1"/>
 
@@ -39,17 +39,17 @@
 
         
         <!-- float, 1 = 100%, percentage of scan points that must match withing icp_inlier_dist so that the match is considered good and a initial pose can be sent -->
-        <param name="icp_inlier_threshold" value="0.88"/>
+        <param name="icp_inlier_threshold" value="0.70"/>
         <!-- float, meters distance a point can have to its nearest neighbor in map to be still considered as inlier -->
         <param name="icp_inlier_dist" value="0.02"/>
         <!-- number of iterations in ICP  -->
         <param name="icp_num_iter" value="250"/>
 
         <!-- translational pose covariance the initial pose gets sent with -->
-        <param name="pose_covariance_trans" value="0.05"/>
+        <param name="pose_covariance_trans" value="0.1"/>
 
         <!-- rate at which scans are taken -->
-        <param name="scan_rate" value="20"/>
+        <param name="scan_rate" value="2"/>
 
         <remap from="base_scan" to="$(arg scan_topic)"/>
         <remap from="map" to="/map"/>
